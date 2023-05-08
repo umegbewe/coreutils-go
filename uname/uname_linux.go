@@ -1,6 +1,6 @@
 package main
 
-import "golang.org/x/sys/unix"
+import "bytes"
 
 func toGoString(cString []byte) string {
 	byteSlice := make([]byte, len(cString))
