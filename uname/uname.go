@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"flag"
 	"fmt"
 	"os"
@@ -29,14 +28,26 @@ func main() {
 		os.Exit(1)
 	}
 
-	printInfo := func(flag *bool, byteArray [256]byte) {
+	printInfo := func(flag *bool, cString interface{}) {
 		if *flag {
-			byteArray := byteArray[:]
-			nullTerminated := bytes.IndexByte(byteArray, 0)
-			if nullTerminated != -1  {
-				byteArray = byteArray[:nullTerminated]
+			var byteSlice []byte
+			switch v := cString.(type) {
+			case [256]byte:
+				byteSlice = make([]byte, len(v))
+				for i, c := range v {
+					byteSlice[i] = byte(c)
+				}
+			case [65]byte:
+				byteSlice = make([]byte, len(v))
+				for i, c := range v {
+					byteSlice[i] = byte(c)
+				}
+			default:
+				fmt.Fprintf(os.Stderr, "Unsupported array type: %T\n", v)
+				os.Exit(1)
 			}
-			fmt.Printf("%s\n", byteArray)
+			s := toGoString(byteSlice)
+			fmt.Printf("%s\n", s)
 		}
 	}
 
