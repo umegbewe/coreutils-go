@@ -1,4 +1,4 @@
-package wc
+package main
 
 import (
 	"bufio"
@@ -24,23 +24,26 @@ func main() {
 
 	files := flag.Args()
 
+	if !*lFlag && !*wFlag && !*cFlag {
+		*lFlag, *wFlag, *cFlag = true, true, true
+	}
+
 	if len(files) == 0 {
 		processStdin(*lFlag, *wFlag, *cFlag)
-		return
-	}
+	} else  {
+		results := make([]wcResult, len(files))
 
-	results := make([]wcResult, len(files))
-
-	for i, file := range files {
-		fileResult, err := wc(file)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error processing file '%s': %v\n", file, err)
-			continue
+		for i, file := range files {
+			fileResult, err := wc(file)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error processing file '%s': %v\n", file, err)
+				continue
+			}
+			results[i] = fileResult
 		}
-		results[i] = fileResult
+		displayResults(results, *lFlag, *wFlag, *cFlag)
 	}
 
-	displayResults(results, *lFlag, *wFlag, *cFlag)
 }
 
 func processStdin(lFlag, wFlag, cFlag bool) {
