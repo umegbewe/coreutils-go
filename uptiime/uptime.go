@@ -1,5 +1,5 @@
 /* In no way is this code ready, please don't use
-*/
+ */
 package main
 
 import (
@@ -12,9 +12,14 @@ import (
 	"os"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 )
+
+type LoadAvg struct {
+	One     float64
+	Five    float64
+	Fifteen float64
+}
 
 const (
 	UT_LINESIZE = 32
@@ -138,13 +143,18 @@ func getUsers() (int, error) {
 	return users, nil
 }
 
-func getLoadAvg() (*syscall.Sysinfo_t, error) {
-	// The Sysinfo_t struct contains the load averages, among other things
-	var info syscall.Sysinfo_t
+func getLoadAvg() (*LoadAvg, error) {
+	file, err := os.Open("/proc/loadavg")
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
 
-	if err := syscall.Sysinfo(&info); err != nil {
+	var load LoadAvg
+	_, err = fmt.Fscanf(file, "%f %f %f", &load.One, &load.Five, &load.Fifteen)
+	if err != nil {
 		return nil, err
 	}
 
-	return &info, nil
+	return &load, nil
 }
