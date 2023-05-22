@@ -6,7 +6,10 @@ import (
 	"log"
 	"os"
 	"strconv"
+	"strings"
 	"syscall"
+
+	px "github.com/mitchellh/go-ps"
 )
 
 var signalName string
@@ -37,10 +40,8 @@ func main() {
 		flag.Usage()
 		os.Exit(1)
 	}
-
-	pid, err := strconv.Atoi(flag.Arg(0))
-	if err != nil {
-		log.Fatalf("Invalid pid %s", err)
+	if len(flag.Args()) == 0 {
+		log.Fatal("Usage: kill [-s sigspec] pid|pgid|pname")
 	}
 
 	sig, ok := signalMap[signalName]
@@ -48,12 +49,17 @@ func main() {
 		log.Fatalf("unknown signal %s", signalName)
 	}
 
-	if pid < 0 {
+	target := flag.Arg(0)
+	pid, err := strconv.Atoi(target)
+
+	if err == nil && pid < 0 {
 		err = syscall.Kill(-pid, sig) // negative pid is a process group
 		if err != nil {
 			log.Fatalf("failed to send signal to process group: %v", err)
 		}
-	} else {
+		fmt.Printf("sent signal %s to the process group %d", signalName, pid)
+	} else if err == nil {
+		// pid is a process
 		process, err := os.FindProcess(pid)
 		if err != nil {
 			log.Fatalf("Failed to find process: %v", err)
@@ -63,7 +69,25 @@ func main() {
 		if err != nil {
 			log.Fatalf("failed to send signal to process: %d\n", err)
 		}
+	} else {
+		// if pid is not a number, assume it's a process name
+		processes, err := px.Processes()
+		if err != nil {
+			log.Fatalf("failed to get processes: %v", err)
+		}
+		for _, process := range processes {
+			if strings.ToLower(process.Executable()) == strings.ToLower(target) {
+				proc, err := os.FindProcess(process.Pid())
+				if err != nil {
+					log.Printf("failed to find process: %v", err)
+					continue
+				}
+				err = proc.Signal(sig)
+				if err != nil {
+					log.Printf("failed to send signal to process: %v", err)
+				}
+				fmt.Printf("sent signal %s to process %d\n", signalName, proc.Pid)
+			}
+		}
 	}
-
-	fmt.Printf("sent signal %s to the process %d", signalName, pid)
 }
