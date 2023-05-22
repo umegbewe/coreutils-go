@@ -172,6 +172,21 @@ func ls(dirname string, recursive bool) {
 
 	totalSize := int64(0)
 
+	if *aFlag {
+		dot, err := os.Stat(".")
+		if err != nil {
+			fmt.Println(err)
+			return
+		}
+		dotDot, err := os.Stat("..")
+		if err != nil {
+			fmt.Println(err)
+			return
+		}
+
+		files = append([]os.FileInfo{dot, dotDot}, files...)
+	}
+
 	if *lFlag {
 		for _, file := range files {
 			totalSize += file.Sys().(*syscall.Stat_t).Blocks
@@ -206,8 +221,9 @@ func ls(dirname string, recursive bool) {
 		}
 
 		if recursive && file.IsDir() {
-			fmt.Printf("\n%s:\n", filepath.Join(dirname, file.Name()))
-			ls(filepath.Join(dirname, file.Name()), true)
+			subDir := filepath.Join(dirname, file.Name())
+			fmt.Printf("\n%s:\n", subDir)
+			ls(subDir, recursive)
 		}
 	}
 }
