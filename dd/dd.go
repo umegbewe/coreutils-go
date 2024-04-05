@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strconv"
 	"syscall"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -88,14 +90,45 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err := Copy(opts); err != nil {
+	if err := copy(opts); err != nil {
 		handleError(err)
 	}
 }
+
+type BlockSize struct {
+	Value *int
+}
+
+func (b *BlockSize) String() string {
+	return fmt.Sprintf("%d", *b.Value)
+}
+func (b *BlockSize) Set(s string) error {
+	var multiplier int
+	var value int
+
+	switch suffix := s[len(s)-1]; suffix {
+	case 'k', 'K':
+		multiplier = 1024
+		value, _ = strconv.Atoi(s[:len(s)-1])
+	case 'm', 'M':
+		multiplier = 1024 * 1024
+		value, _ = strconv.Atoi(s[:len(s)-1])
+	case 'g', 'G':
+		multiplier = 1024 * 1024 * 1024
+		value, _ = strconv.Atoi(s[:len(s)-1])
+	default:
+		multiplier = 1
+		value, _ = strconv.Atoi(s)
+	}
+
+	*b.Value = value * multiplier
+	return nil
+}
+
 func ParseOptions() (*Options, error) {
 	opts := &Options{}
 
-	flag.IntVar(&opts.BlockSize, "bs", 512, "block size")
+	flag.Var(&BlockSize{&opts.BlockSize}, "bs", "block size")
 	flag.Int64Var(&opts.Count, "count", 0, "number of blocks to copy")
 	flag.StringVar(&opts.IfFile, "if", "", "input file")
 	flag.StringVar(&opts.OfFile, "of", "", "output file")
@@ -116,7 +149,8 @@ func ParseOptions() (*Options, error) {
 	return opts, nil
 }
 
-func Copy(opts *Options) error {
+
+func copy(opts *Options) error {
 	var in *os.File
 	var err error
 
@@ -200,6 +234,9 @@ func Copy(opts *Options) error {
 
 	buf := make([]byte, opts.BlockSize)
 	var tBytes int64
+	var fullBlocks, partialBlocks int64
+
+	start := time.Now()
 
 	for {
 		if opts.Count > 0 && tBytes >= opts.Count*int64(opts.BlockSize) {
@@ -209,6 +246,9 @@ func Copy(opts *Options) error {
 		n, err := io.ReadFull(in, buf)
 		if err != nil {
 			if err == io.EOF || err == io.ErrUnexpectedEOF {
+				if n > 0 {
+					partialBlocks++
+				}
 				break
 			}
 			return &InputError{Err: fmt.Errorf("failed to read input file: %v", err)}
@@ -216,7 +256,7 @@ func Copy(opts *Options) error {
 
 		if opts.Conv != "" {
 			var err error
-			buf, err = Conversions(buf[:n], opts.Conv, opts)
+			buf, err = conversions(buf[:n], opts.Conv, opts)
 			if err != nil {
 				return &ConversionError{Err: fmt.Errorf("failed to apply conversions: %v", err)}
 			}
@@ -233,20 +273,25 @@ func Copy(opts *Options) error {
 		}
 
 		tBytes += int64(n)
-
-		if opts.Progress {
-			fmt.Fprintf(os.Stderr, "\r%d bytes copied", tBytes)
+		if n == len(buf) {
+			fullBlocks++
+		} else {
+			partialBlocks++
 		}
+
 	}
 
-	if opts.Progress {
-		fmt.Fprintln(os.Stderr)
-	}
+	dur := time.Since(start)
+
+	fmt.Fprintf(os.Stderr, "%d+%d records in\n", fullBlocks, partialBlocks)
+	fmt.Fprintf(os.Stderr, "%d+%d records out\n", fullBlocks, partialBlocks)
+	fmt.Fprintf(os.Stderr, "%d bytes (%s) copied, %.4f s, %.0f MB/s\n",
+		tBytes, humanize(tBytes), dur.Seconds(), float64(tBytes)/dur.Seconds()/1024/1024)
 
 	return nil
 }
 
-func Conversions(buf []byte, conv string, opts *Options) ([]byte, error) {
+func conversions(buf []byte, conv string, opts *Options) ([]byte, error) {
 	switch conv {
 	case "ascii":
 		return charmap.ISO8859_1.NewDecoder().Bytes(buf)
@@ -277,7 +322,7 @@ func Conversions(buf []byte, conv string, opts *Options) ([]byte, error) {
 			defer out.Close()
 
 			if _, err := out.Write(buf); err != nil {
-				return nil, fmt.Errorf("failed to write to sparse output file:")
+				return nil, fmt.Errorf("failed to write to sparse output file: %v", err)
 			}
 
 			if err := out.Truncate(info.Size()); err != nil {
@@ -318,7 +363,8 @@ func Conversions(buf []byte, conv string, opts *Options) ([]byte, error) {
 		}
 		defer out.Close()
 
-		if err := syscall.Fdatasync(int(out.Fd())); err != nil {
+		// please revisit this, fsync vs fdatasync
+		if err := syscall.Fsync(int(out.Fd())); err != nil {
 			return nil, fmt.Errorf("failed to perform fdatasync: %v", err)
 		}
 		return buf, nil
@@ -347,4 +393,18 @@ func Conversions(buf []byte, conv string, opts *Options) ([]byte, error) {
 	default:
 		return buf, nil
 	}
+}
+
+func humanize(bytes int64) string {
+    sizes := []string{"B", "KB", "MB", "GB", "TB", "PB", "EB"}
+    if bytes == 0 {
+        return "0 B"
+    }
+    base := int64(1024)
+    i := 0
+    for bytes >= base {
+        bytes /= base
+        i++
+    }
+    return fmt.Sprintf("%d %s", bytes, sizes[i])
 }
