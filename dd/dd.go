@@ -363,8 +363,7 @@ func conversions(buf []byte, conv string, opts *Options) ([]byte, error) {
 		}
 		defer out.Close()
 
-		// please revisit this, fsync vs fdatasync
-		if err := syscall.Fsync(int(out.Fd())); err != nil {
+		if err := syscall.Fdatasync(int(out.Fd())); err != nil {
 			return nil, fmt.Errorf("failed to perform fdatasync: %v", err)
 		}
 		return buf, nil
